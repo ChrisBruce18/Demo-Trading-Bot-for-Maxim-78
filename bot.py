@@ -21,16 +21,14 @@ with open("config.json", "r") as f:
 
 SYMBOL = cfg.get("SYMBOL", "BTCUSDT")
 LOG_FILE = cfg.get("LOG_FILE", "logs/trade_log.csv")
-SLEEP_SECONDS = cfg.get("SLEEP_SECONDS", 5)
+TRADE_INTERVAL = cfg.get("TRADE_INTERVAL", 30)  # seconds between checks
 
-############################
-# SETUP LOG FILE
-############################
-
+# create logs dir if missing
 import os
-if not os.path.exists("logs"):
-    os.makedirs("logs")
+if not os.path.exists('logs'):
+    os.makedirs('logs')
 
+# ensure CSV header exists
 if not os.path.exists(LOG_FILE):
     pd.DataFrame(columns=['timestamp', 'price', 'side', 'strategy', 
 'confidence', 'qty']).to_csv(LOG_FILE, index=False)
@@ -85,13 +83,13 @@ def generate_signal(df):
         return None, 0.0
 
     ma_cross_buy = (
-        (df["MA_short"].iloc[-2] < df["MA_long"].iloc[-2])
-        and (df["MA_short"].iloc[-1] > df["MA_long"].iloc[-1])
+        df["MA_short"].iloc[-2] < df["MA_long"].iloc[-2] and
+        df["MA_short"].iloc[-1] > df["MA_long"].iloc[-1]
     )
 
     ma_cross_sell = (
-        (df["MA_short"].iloc[-2] > df["MA_long"].iloc[-2])
-        and (df["MA_short"].iloc[-1] < df["MA_long"].iloc[-1])
+        df["MA_short"].iloc[-2] > df["MA_long"].iloc[-2] and
+        df["MA_short"].iloc[-1] < df["MA_long"].iloc[-1]
     )
 
     if ma_cross_buy and df["RSI"].iloc[-1] < 70:
@@ -109,6 +107,7 @@ def generate_signal(df):
 def execute_trade(side, confidence, price, strategy):
     qty = size_from_vol(confidence, price)
 
+    # Safe multi-line f-string
     commentary = (
         f"{datetime.now()} - Predicted {side.upper()} "
         f"(conf {confidence:.2f}) qty {qty:.6f} @ {price:.2f} via 
@@ -123,8 +122,6 @@ confidence, qty]],
 'strategy', 'confidence', 'qty'])
     log_df.to_csv(LOG_FILE, mode='a', header=False, index=False)
 
-    # Placeholder for actual trade execution hook
-    # Replace with API call to Gemini or other exchange
     return {
         "status": "ready_to_send",
         "side": side,
@@ -144,38 +141,68 @@ def main():
         return
 
     df = compute_indicators(df)
+
+    # initialize models
     ensemble_model = PredictiveEnsemble()
+    kalman_model = SimpleKalman(q_level=1e-4, q_trend=1e-4, r=1.0)
+    vol_model = EWMA_Volatility(span=20)
+
+    # train initial ensemble
+    try:
+        ensemble_model.train_initial(df['close'].values)
+    except Exception:
+        pass
+    kalman_model.initialize(df['close'].iloc[0])
+
+    print("Bot started. Running live trading.")
 
     while True:
         try:
             price = fetch_latest_price(df)
 
             # Model predictions
-            prediction, conf = ensemble_model.predict(df)
+            preds = ensemble_model.predict(df['close'].values)
+            preds_list = []
+            if preds is not None:
+                mu_var_bayes, mu_var_sgd = preds
+                preds_list.append(mu_var_bayes)
+                preds_list.append(mu_var_sgd)
+
+            # Kalman update
+            level, trend, obs_var = 
+kalman_model.update(df['close'].iloc[-1])
+            kalman_mu = trend / max(level, 1e-8)
+            kalman_var = obs_var
+            preds_list.append((kalman_mu, kalman_var))
+
+            # Compute precision-weighted ensemble
+            ensemble_mu, ensemble_var = 
+precision_weighted_ensemble(preds_list)
+
+            # Estimated volatility
+            ret = np.log(df['close'].iloc[-1] / df['close'].iloc[-2] + 
+1e-12)
+            est_vol = vol_model.update(ret)
 
             # Technical signal
             tech_side, tech_conf = generate_signal(df)
 
+            # Decide final signal
+            direction = 'buy' if ensemble_mu > 0 else 'sell'
+            consensus = (tech_side == direction)
+
+            confidence = max(0.0, min(1.0, 1.0 / (1.0 + ensemble_var)))
+            price_now = float(df['close'].iloc[-1])
+            qty = size_from_vol(target_vol=0.02, est_vol=est_vol, 
+price=price_now, max_usd_alloc=1000)
+
             final_side = None
-            final_conf = 0.0
+            if consensus and confidence > 0.25 and qty > 0:
+                final_side = direction
+                execute_trade(final_side, confidence, price_now, 
+"ensemble+signals")
 
-            if prediction in ["buy", "sell"]:
-                final_side = prediction
-                final_conf = conf
-
-            if tech_side is not None and tech_conf > final_conf:
-                final_side = tech_side
-                final_conf = tech_conf
-
-            if final_side:
-                execute_trade(
-                    side=final_side,
-                    confidence=final_conf,
-                    price=price,
-                    strategy="ensemble+signals"
-                )
-
-            time.sleep(SLEEP_SECONDS)
+            time.sleep(TRADE_INTERVAL)
 
         except KeyboardInterrupt:
             print("Stopped by user.")
@@ -183,6 +210,7 @@ def main():
         except Exception as e:
             print("Runtime error:", e)
             time.sleep(5)
+
 
 if __name__ == "__main__":
     main()
