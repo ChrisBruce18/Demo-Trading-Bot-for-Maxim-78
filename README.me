@@ -1,37 +1,107 @@
-# Demo Trading Bot for Maxim-78
+Demo Trading Bot for Maxim-78
+Overview
 
-## Overview
-This is a lightweight, local demo of an AI-driven crypto trading bot 
-designed for testnet execution. It integrates **multi-layered predictive 
-signals**, **confidence scores**, and a **live dashboard** for easy 
-visualization.
+This is a demo automated crypto trading bot built by ActuarialOS, 
+showcasing advanced capabilities in:
 
-## Features
+Quantitative finance & AI-driven trading strategies
 
-1. **Multi-Layer Signal System**
-   - **Moving Average Crossover:** Short vs Long period moving averages
-   - **Polynomial Regression:** Predicts trend slope, outputs confidence
-   - **ML Linear Regression:** Predicts next price point, outputs R² 
-confidence
+Real-time trade simulations (paper trading/demo mode)
 
-2. **Signal Confirmation**
-   - Trades are executed only if **all three layers agree**, reducing 
-false positives.
+Network-specific optimizations for Binance, Solana, and Polygon
 
-3. **Dashboard**
-   - Live plot of price + MAs
-   - Buy/Sell markers
-   - Cumulative P/L chart
-   - AI-style commentary panel displaying latest trade insights and 
-confidence scores
+Included files:
 
-4. **Logging**
-   - All trades logged with timestamp, strategy, and confidence
-   - Stored in `logs/trade_log.csv`
+File	Description
+bot.py	Core trading engine
+strategies.py	Advanced trading strategies and predictive models
+dashboard.py	Local dashboard for monitoring trades, PnL, and 
+performance metrics
+config_example.json	Template configuration file for API keys and 
+parameters
+requirements.txt	Python dependencies
+Installation & Dependencies
 
-## How to Run
-1. Install dependencies:
-```bash
+Clone the repository:
+
+git clone 
+https://github.com/ChrisBruce18/Demo-Trading-Bot-for-Maxim-78.git
+cd Demo-Trading-Bot-for-Maxim-78
+
+
+Install required Python packages:
+
 pip install -r requirements.txt
 
 
+Dependencies include:
+
+ccxt – Unified cryptocurrency exchange API
+
+pandas – Data manipulation and analysis
+
+numpy – Mathematical computations
+
+matplotlib – Plotting and visualization
+
+(Optional) Any additional AI/ML libraries used for predictive models
+
+Configuration
+
+Copy config_example.json to config.json:
+
+cp config_example.json config.json
+
+
+Update config.json with your API keys for demo or testnet trading 
+(Binance, Gemini, etc.):
+
+{
+    "api_key": "YOUR_API_KEY",
+    "api_secret": "YOUR_API_SECRET",
+    "exchange": "binance",
+    "symbol": "BTC/USDT",
+    "trade_amount": 0.001
+}
+
+
+Note: For paper trading/demo mode, use testnet or sandbox API keys. No 
+real funds are required.
+
+Running the Bot
+python bot.py
+
+
+Launches the trading bot with your configured strategies.
+
+strategies.py contains modular strategies that can be added, removed, or 
+modified.
+
+dashboard.py runs a local dashboard for real-time monitoring of trades and 
+performance metrics.
+
+Features
+
+Modular strategy framework
+
+AI-powered predictive trading engine
+
+Risk management: stop-loss, position sizing, portfolio monitoring
+
+Local dashboard for performance visualization
+
+Fully configurable via config.json
+
+Notes
+
+This is a demo bot — paper trading only; no real funds are used.
+
+Designed for demonstration and client evaluation purposes.
+
+Easy to extend for live trading once API keys and risk parameters are 
+properly configured.
+
+Contact
+
+ActuarialOS – Christopher Bruce
+[ChrisBruce18 / chris.bruce@berkeley.edu / 12/5/25)

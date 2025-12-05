@@ -1,3 +1,4 @@
+# dashboard.py
 import matplotlib.pyplot as plt
 import numpy as np
 
@@ -19,7 +20,6 @@ def update_dashboard(df, commentary=None):
     ax2.clear()
     ax3.clear()
 
-    # Price + MAs + signals
     ax1.plot(df['timestamp'], df['close'], label='Close Price', 
 color='blue')
     ax1.plot(df['timestamp'], df['close'].rolling(5).mean(), label='MA 
@@ -29,29 +29,31 @@ Long', color='red')
 
     buys = df[df['signal']=='buy']
     sells = df[df['signal']=='sell']
-    ax1.scatter(buys['timestamp'], buys['close'], marker='^', 
+    if not buys.empty:
+        ax1.scatter(buys['timestamp'], buys['close'], marker='^', 
 color='green', label='Buy Signal')
-    ax1.scatter(sells['timestamp'], sells['close'], marker='v', 
+    if not sells.empty:
+        ax1.scatter(sells['timestamp'], sells['close'], marker='v', 
 color='red', label='Sell Signal')
-    ax1.legend()
+    ax1.legend(loc='upper left')
 
-    # Cumulative P/L
-    df['pl'] = np.where(df['signal']=='buy', 1, 
-np.where(df['signal']=='sell', -1, 0))
-    df['cum_pl'] = df['pl'].cumsum()
-    ax2.plot(df['timestamp'], df['cum_pl'], color='purple', 
+    df_plot = df.copy()
+    df_plot['pl'] = np.where(df_plot['signal']=='buy', 1, 
+np.where(df_plot['signal']=='sell', -1, 0))
+    df_plot['cum_pl'] = df_plot['pl'].cumsum()
+    ax2.plot(df_plot['timestamp'], df_plot['cum_pl'], color='purple', 
 label='Cumulative P/L')
-    ax2.legend()
+    ax2.legend(loc='upper left')
 
-    # Commentary panel
     if commentary:
         commentary_history.append(commentary)
-        if len(commentary_history) > 5:
-            commentary_history = commentary_history[-5:]
-    ax3.text(0.01, 0.5, "\n".join(commentary_history), fontsize=10, 
-va='center', ha='left', wrap=True)
+        if len(commentary_history) > 6:
+            commentary_history = commentary_history[-6:]
+    ax3.text(0.01, 0.99, "\n".join(reversed(commentary_history)), 
+fontsize=10, va='top', ha='left', wrap=True)
     ax3.axis('off')
 
+    plt.tight_layout()
     plt.draw()
     plt.pause(0.01)
 
