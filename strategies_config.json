@@ -1,0 +1,32 @@
+{
+  "exchange": "Binance",
+  "strategy_name": "mean_reversion",
+  "symbols": ["BTCUSDT", "ETHUSDT"],
+  "timeframe": "1h",
+  "parameters": {
+    "lookback_period": 20,
+    "entry_threshold": 0.01,
+    "exit_threshold": 0.005
+  },
+  "api_credentials": {
+    "api_key": "YOUR_BINANCE_KEY",
+    "api_secret": "YOUR_BINANCE_SECRET"
+  }
+}
+
+{
+  "exchange": "Gemini",
+  "strategy_name": "momentum",
+  "symbols": ["BTCUSD", "ETHUSD"],
+  "timeframe": "15m",
+  "parameters": {
+    "lookback_period": 12,
+    "entry_threshold": 0.008,
+    "exit_threshold": 0.004
+  },
+  "api_credentials": {
+    "api_key": "YOUR_GEMINI_KEY",
+    "api_secret": "YOUR_GEMINI_SECRET"
+  }
+}
+
