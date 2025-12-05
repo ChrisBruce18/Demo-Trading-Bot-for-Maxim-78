@@ -116,7 +116,6 @@ def execute_trade(side, confidence, price, strategy):
     try:
         print("Executing real order (placeholder).")
         return {"status": "live_order_sent"}
-
     except Exception as e:
         print("Trade execution error:", str(e))
         return None
@@ -149,5 +148,23 @@ def main():
 
         if prediction in ["buy", "sell"]:
             final_side = prediction
-            final_conf =_
+            final_conf = conf
+
+        if tech_side is not None and tech_conf > final_conf:
+            final_side = tech_side
+            final_conf = tech_conf
+
+        if final_side:
+            execute_trade(
+                side=final_side,
+                confidence=final_conf,
+                price=price,
+                strategy="ensemble+signals"
+            )
+
+        time.sleep(cfg.get("SLEEP_SECONDS", 5))
+
+if __name__ == "__main__":
+    main()
+
 
