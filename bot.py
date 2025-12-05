@@ -1,9 +1,8 @@
 import json
-import os
 import time
-from datetime import datetime, timedelta
-import numpy as np
+from datetime import datetime
 import pandas as pd
+import numpy as np
 
 from strategies import (
     PredictiveEnsemble,
@@ -12,7 +11,6 @@ from strategies import (
     precision_weighted_ensemble,
     size_from_vol
 )
-from dashboard import update_dashboard  # assuming you have this module
 
 ############################
 # CONFIG
@@ -21,28 +19,28 @@ from dashboard import update_dashboard  # assuming you have this module
 with open("config.json", "r") as f:
     cfg = json.load(f)
 
+SYMBOL = cfg.get("SYMBOL", "BTCUSDT")
 LOG_FILE = cfg.get("LOG_FILE", "logs/trade_log.csv")
-SYMBOL = cfg.get("SYMBOL", "BTC/USDT")
-TRADE_INTERVAL = cfg.get("TRADE_INTERVAL", 30)  # seconds between checks
-MAX_USD_ALLOC = cfg.get("MAX_USD_ALLOC", 1000)
-TARGET_VOL = cfg.get("TARGET_VOL", 0.02)
+SLEEP_SECONDS = cfg.get("SLEEP_SECONDS", 5)
 
-# create logs dir
+############################
+# SETUP LOG FILE
+############################
+
+import os
 if not os.path.exists("logs"):
     os.makedirs("logs")
 
-# ensure log header exists
 if not os.path.exists(LOG_FILE):
-    pd.DataFrame(
-        columns=['timestamp','price','side','strategy','confidence','qty']
-    ).to_csv(LOG_FILE, index=False)
+    pd.DataFrame(columns=['timestamp', 'price', 'side', 'strategy', 
+'confidence', 'qty']).to_csv(LOG_FILE, index=False)
 
 ############################
-# DATA LOADING
+# LOAD HISTORICAL / LIVE DATA
 ############################
 
 def load_json_data():
-    """Load historical candle data from JSON."""
+    """Loads the historical candles file."""
     try:
         with open("data.json", "r") as f:
             data = json.load(f)
@@ -52,6 +50,7 @@ def load_json_data():
         return pd.DataFrame()
 
 def fetch_latest_price(df):
+    """Returns the most recent close price."""
     return float(df["close"].iloc[-1])
 
 ############################
@@ -74,32 +73,42 @@ def compute_indicators(df):
     df["EMA_30"] = df["close"].ewm(span=30).mean()
     df["RSI"] = compute_rsi(df["close"])
     df["returns"] = df["close"].pct_change()
-    df["signal"] = None
     return df
 
 ############################
 # SIGNAL GENERATION
 ############################
 
-def ma_crossover_signal(df, short=5, long=20):
-    if len(df) < long + 2:
-        return None
-    df = df.copy()
-    df['MA_short'] = df['close'].rolling(short).mean()
-    df['MA_long'] = df['close'].rolling(long).mean()
-    if df['MA_short'].iloc[-2] < df['MA_long'].iloc[-2] and 
-df['MA_short'].iloc[-1] > df['MA_long'].iloc[-1]:
-        return 'buy'
-    elif df['MA_short'].iloc[-2] > df['MA_long'].iloc[-2] and 
-df['MA_short'].iloc[-1] < df['MA_long'].iloc[-1]:
-        return 'sell'
-    return None
+def generate_signal(df):
+    """Simple MA cross + RSI filter."""
+    if len(df) < 60:
+        return None, 0.0
+
+    ma_cross_buy = (
+        (df["MA_short"].iloc[-2] < df["MA_long"].iloc[-2])
+        and (df["MA_short"].iloc[-1] > df["MA_long"].iloc[-1])
+    )
+
+    ma_cross_sell = (
+        (df["MA_short"].iloc[-2] > df["MA_long"].iloc[-2])
+        and (df["MA_short"].iloc[-1] < df["MA_long"].iloc[-1])
+    )
+
+    if ma_cross_buy and df["RSI"].iloc[-1] < 70:
+        return "buy", 0.65
+
+    if ma_cross_sell and df["RSI"].iloc[-1] > 30:
+        return "sell", 0.65
+
+    return None, 0.0
 
 ############################
 # ORDER EXECUTION
 ############################
 
-def execute_trade(side, price, strategy, confidence, qty):
+def execute_trade(side, confidence, price, strategy):
+    qty = size_from_vol(confidence, price)
+
     commentary = (
         f"{datetime.now()} - Predicted {side.upper()} "
         f"(conf {confidence:.2f}) qty {qty:.6f} @ {price:.2f} via 
@@ -107,106 +116,66 @@ def execute_trade(side, price, strategy, confidence, qty):
     )
     print(commentary)
 
-    log = pd.DataFrame([[datetime.now(), price, side, strategy, 
-float(confidence), float(qty)]],
-                       
-columns=['timestamp','price','side','strategy','confidence','qty'])
-    log.to_csv(LOG_FILE, mode='a', header=False, index=False)
+    # Log to CSV
+    log_df = pd.DataFrame([[datetime.now(), price, side, strategy, 
+confidence, qty]],
+                          columns=['timestamp', 'price', 'side', 
+'strategy', 'confidence', 'qty'])
+    log_df.to_csv(LOG_FILE, mode='a', header=False, index=False)
 
-    try:
-        # Placeholder for actual live API call
-        print("Live trade executed (replace with API call).")
-        return {"status": "live_order_sent"}
-    except Exception as e:
-        print("Trade execution error:", str(e))
-        return None
+    # Placeholder for actual trade execution hook
+    # Replace with API call to Gemini or other exchange
+    return {
+        "status": "ready_to_send",
+        "side": side,
+        "price": price,
+        "qty": qty,
+        "strategy": strategy
+    }
 
 ############################
 # MAIN LOOP
 ############################
 
 def main():
-    df_master = load_json_data()
-    if df_master.empty:
+    df = load_json_data()
+    if df.empty:
         print("No data loaded. Exiting.")
         return
 
-    df_master = compute_indicators(df_master)
-
-    # initialize models
-    ensemble = PredictiveEnsemble(window=40)
-    kalman = SimpleKalman(q_level=1e-4, q_trend=1e-4, r=1.0)
-    vol_est = EWMA_Volatility(span=20)
-
-    try:
-        ensemble.train_initial(df_master['close'].values)
-    except Exception:
-        pass
-    kalman.initialize(df_master['close'].iloc[0])
-
-    print("Live trading bot started.")
+    df = compute_indicators(df)
+    ensemble_model = PredictiveEnsemble()
 
     while True:
         try:
-            last_price = float(df_master['close'].iloc[-1])
-            price_now = last_price  # Replace with real-time fetch from 
-API
+            price = fetch_latest_price(df)
 
-            # MA signal
-            ma_sig = ma_crossover_signal(df_master)
+            # Model predictions
+            prediction, conf = ensemble_model.predict(df)
 
-            # ensemble prediction
-            ensemble.online_update(df_master['close'].values)
-            preds = ensemble.predict(df_master['close'].values)
-            preds_list = []
-            if preds is not None:
-                mu_var_bayes, mu_var_sgd = preds
-                preds_list.append(mu_var_bayes)
-                preds_list.append(mu_var_sgd)
+            # Technical signal
+            tech_side, tech_conf = generate_signal(df)
 
-            # Kalman update
-            level, trend, obs_var = 
-kalman.update(df_master['close'].iloc[-1])
-            kalman_mu = trend / max(level, 1e-8)
-            kalman_var = obs_var
-            preds_list.append((kalman_mu, kalman_var))
+            final_side = None
+            final_conf = 0.0
 
-            # ensemble aggregation
-            ensemble_mu, ensemble_var = 
-precision_weighted_ensemble(preds_list)
+            if prediction in ["buy", "sell"]:
+                final_side = prediction
+                final_conf = conf
 
-            # estimated volatility
-            ret = np.log(df_master['close'].iloc[-1] / 
-df_master['close'].iloc[-2] + 1e-12)
-            est_vol = vol_est.update(ret)
+            if tech_side is not None and tech_conf > final_conf:
+                final_side = tech_side
+                final_conf = tech_conf
 
-            # direction & consensus
-            direction = 'buy' if ensemble_mu > 0 else 'sell'
-            consensus = (ma_sig == direction)
+            if final_side:
+                execute_trade(
+                    side=final_side,
+                    confidence=final_conf,
+                    price=price,
+                    strategy="ensemble+signals"
+                )
 
-            # confidence mapping
-            confidence = max(0.0, min(1.0, 1.0 / (1.0 + ensemble_var)))
-
-            # position sizing
-            qty = size_from_vol(TARGET_VOL, est_vol, price_now, 
-max_usd_alloc=MAX_USD_ALLOC)
-
-            final_signal = None
-            commentary = None
-            if consensus and confidence > 0.25 and qty > 0:
-                final_signal = direction
-                commentary = execute_trade(final_signal, price_now, 
-'PhD_Ensemble', confidence, qty)
-            else:
-                commentary = f"{datetime.now()} - No trade: 
-consensus={consensus}, conf={confidence:.2f}, qty={qty:.6f}"
-
-            df_master.at[df_master.index[-1], 'signal'] = final_signal
-
-            # update dashboard
-            update_dashboard(df_master, commentary)
-
-            time.sleep(TRADE_INTERVAL)
+            time.sleep(SLEEP_SECONDS)
 
         except KeyboardInterrupt:
             print("Stopped by user.")
@@ -217,4 +186,5 @@ consensus={consensus}, conf={confidence:.2f}, qty={qty:.6f}"
 
 if __name__ == "__main__":
     main()
+
 
