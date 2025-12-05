@@ -79,9 +79,9 @@ cfg = Config()
 # Ensure logs directory exists
 os.makedirs(os.path.dirname(cfg.log_file), exist_ok=True)
 if not os.path.exists(cfg.log_file):
-    
-pd.DataFrame(columns=['timestamp','price','side','strategy','confidence','qty']).to_csv(cfg.log_file, 
-index=False)
+    pd.DataFrame(
+        columns=['timestamp','price','side','strategy','confidence','qty']
+    ).to_csv(cfg.log_file, index=False)
 
 ############################
 # DATA FUNCTIONS
@@ -162,15 +162,12 @@ max_usd_alloc=cfg.max_usd_allocation)
     print(commentary)
 
     # Log trade
-    log = pd.DataFrame([[datetime.now(), price, side, strategy, 
-float(confidence), float(qty)]],
-                       
-columns=['timestamp','price','side','strategy','confidence','qty'])
+    log = pd.DataFrame(
+        [[datetime.now(), price, side, strategy, float(confidence), 
+float(qty)]],
+        columns=['timestamp','price','side','strategy','confidence','qty']
+    )
     log.to_csv(cfg.log_file, mode='a', header=False, index=False)
-
-    # Placeholder for API trade execution (replace with exchange call)
-    # Here, you would implement: exchange.create_order(symbol, side, qty, 
-...)
     return commentary
 
 ############################
@@ -260,3 +257,5 @@ ignore_index=True)
 
 if __name__ == "__main__":
     main()
+
+
