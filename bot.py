@@ -187,8 +187,13 @@ max_usd_alloc=MAX_USD_ALLOC)
         # Execute or skip trade
         if consensus and confidence > 0.25 and qty > 0:
             final_signal = direction
-            commentary = execute_trade(final_signal, price_now, 
-'PhD_Ensemble', confidence, qty)
+            commentary = execute_trade(
+                final_signal,
+                price_now,
+                'PhD_Ensemble',
+                confidence,
+                qty
+            )
         else:
             final_signal = None
             commentary = (
