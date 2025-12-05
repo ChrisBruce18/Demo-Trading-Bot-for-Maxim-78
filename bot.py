@@ -96,6 +96,7 @@ def generate_signal(df):
 def execute_trade(side, confidence, price, strategy):
     qty = size_from_vol(confidence, price)
 
+    # Fully safe f-string
     commentary = (
         f"{datetime.now()} - Predicted {side.upper()} "
         f"(conf {confidence:.2f}) qty {qty:.6f} @ {price:.2f} via 
