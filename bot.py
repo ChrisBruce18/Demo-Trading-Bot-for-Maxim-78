@@ -33,7 +33,8 @@ if not os.path.exists('logs'):
 
 if not os.path.exists(LOG_FILE):
     pd.DataFrame(
-        columns=['timestamp','price','side','strategy','confidence','qty']
+        columns=['timestamp', 'price', 'side', 'strategy', 'confidence', 
+'qty']
     ).to_csv(LOG_FILE, index=False)
 
 # ------------------------------
@@ -55,7 +56,7 @@ def generate_demo_data(length=LIMIT, start_price=50000.0):
     rng = np.random.default_rng(seed=42)
     price = start_price + np.cumsum(rng.normal(scale=40.0, size=length))
     timestamps = [
-        datetime.now() - timedelta(seconds=TRADE_INTERVAL*(length - i))
+        datetime.now() - timedelta(seconds=TRADE_INTERVAL * (length - i))
         for i in range(length)
     ]
     df = pd.DataFrame({
@@ -77,6 +78,7 @@ def ma_crossover_signal(df, short=5, long=20):
     df = df.copy()
     df['MA_short'] = df['close'].rolling(short).mean()
     df['MA_long'] = df['close'].rolling(long).mean()
+
     if (df['MA_short'].iloc[-2] < df['MA_long'].iloc[-2] and
         df['MA_short'].iloc[-1] > df['MA_long'].iloc[-1]):
         return 'buy'
@@ -86,16 +88,16 @@ def ma_crossover_signal(df, short=5, long=20):
     return None
 
 def execute_trade(side, price, strategy, confidence, qty):
-    commentary = (
-        f"{datetime.now()} - Predicted {side.upper()} "
-        f"(conf {confidence:.2f}) qty {qty:.6f} @ {price:.2f} via 
-{strategy}"
-    )
+    # single f-string on one line to avoid unterminated error
+    commentary = f"{datetime.now()} - Predicted {side.upper()} (conf 
+{confidence:.2f}) qty {qty:.6f} @ {price:.2f} via {strategy}"
     print(commentary)
-    log_df = pd.DataFrame([[datetime.now(), price, side, strategy, 
-float(confidence), float(qty)]],
-                          
-columns=['timestamp','price','side','strategy','confidence','qty'])
+    log_df = pd.DataFrame(
+        [[datetime.now(), price, side, strategy, float(confidence), 
+float(qty)]],
+        columns=['timestamp', 'price', 'side', 'strategy', 'confidence', 
+'qty']
+    )
     log_df.to_csv(LOG_FILE, mode='a', header=False, index=False)
     return commentary
 
@@ -109,7 +111,7 @@ else:
 
 df_master['signal'] = None
 
-# Initialize models
+# Initialize models (these are expected in strategies.py)
 ensemble = PredictiveEnsemble(window=40)
 kalman = SimpleKalman(q_level=1e-4, q_trend=1e-4, r=1.0)
 vol_est = EWMA_Volatility(span=20)
@@ -187,19 +189,13 @@ max_usd_alloc=MAX_USD_ALLOC)
         # Execute or skip trade
         if consensus and confidence > 0.25 and qty > 0:
             final_signal = direction
-            commentary = execute_trade(
-                final_signal,
-                price_now,
-                'PhD_Ensemble',
-                confidence,
-                qty
-            )
+            commentary = execute_trade(final_signal, price_now, 
+'PhD_Ensemble', confidence, qty)
         else:
             final_signal = None
-            commentary = (
-                f"{datetime.now()} - No trade: consensus={consensus}, "
-                f"conf={confidence:.2f}, qty={qty:.6f}"
-            )
+            # wrap the "no trade" message on one line to avoid breaks
+            commentary = f"{datetime.now()} - No trade: 
+consensus={consensus}, conf={confidence:.2f}, qty={qty:.6f}"
 
         df_master.at[df_master.index[-1], 'signal'] = final_signal
 
@@ -215,4 +211,5 @@ max_usd_alloc=MAX_USD_ALLOC)
     except Exception as e:
         print("Runtime error:", e)
         time.sleep(5)
+
 
