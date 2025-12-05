@@ -1,0 +1,37 @@
+# Demo Trading Bot for Maxim-78
+
+## Overview
+This is a lightweight, local demo of an AI-driven crypto trading bot 
+designed for testnet execution. It integrates **multi-layered predictive 
+signals**, **confidence scores**, and a **live dashboard** for easy 
+visualization.
+
+## Features
+
+1. **Multi-Layer Signal System**
+   - **Moving Average Crossover:** Short vs Long period moving averages
+   - **Polynomial Regression:** Predicts trend slope, outputs confidence
+   - **ML Linear Regression:** Predicts next price point, outputs R² 
+confidence
+
+2. **Signal Confirmation**
+   - Trades are executed only if **all three layers agree**, reducing 
+false positives.
+
+3. **Dashboard**
+   - Live plot of price + MAs
+   - Buy/Sell markers
+   - Cumulative P/L chart
+   - AI-style commentary panel displaying latest trade insights and 
+confidence scores
+
+4. **Logging**
+   - All trades logged with timestamp, strategy, and confidence
+   - Stored in `logs/trade_log.csv`
+
+## How to Run
+1. Install dependencies:
+```bash
+pip install -r requirements.txt
+
+
