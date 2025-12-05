@@ -77,11 +77,11 @@ def ma_crossover_signal(df, short=5, long=20):
     df = df.copy()
     df['MA_short'] = df['close'].rolling(short).mean()
     df['MA_long'] = df['close'].rolling(long).mean()
-    if df['MA_short'].iloc[-2] < df['MA_long'].iloc[-2] and 
-df['MA_short'].iloc[-1] > df['MA_long'].iloc[-1]:
+    if (df['MA_short'].iloc[-2] < df['MA_long'].iloc[-2] and
+        df['MA_short'].iloc[-1] > df['MA_long'].iloc[-1]):
         return 'buy'
-    elif df['MA_short'].iloc[-2] > df['MA_long'].iloc[-2] and 
-df['MA_short'].iloc[-1] < df['MA_long'].iloc[-1]:
+    elif (df['MA_short'].iloc[-2] > df['MA_long'].iloc[-2] and
+          df['MA_short'].iloc[-1] < df['MA_long'].iloc[-1]):
         return 'sell'
     return None
 
