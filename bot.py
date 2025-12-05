@@ -41,7 +41,7 @@ def fetch_latest_price(df):
     return float(df["close"].iloc[-1])
 
 ############################
-# INDICATOR SUITE
+# INDICATORS
 ############################
 
 def compute_indicators(df):
@@ -67,19 +67,18 @@ def compute_rsi(series, period=14):
 ############################
 
 def generate_signal(df):
-    """Simple MA cross + RSI filter example."""
+    """Simple MA cross + RSI filter."""
     if len(df) < 60:
         return None, 0.0
 
-    # Ensures no multiline syntax issues
     ma_cross_buy = (
-        df["MA_short"].iloc[-2] < df["MA_long"].iloc[-2] and
-        df["MA_short"].iloc[-1] > df["MA_long"].iloc[-1]
+        df["MA_short"].iloc[-2] < df["MA_long"].iloc[-2]
+        and df["MA_short"].iloc[-1] > df["MA_long"].iloc[-1]
     )
 
     ma_cross_sell = (
-        df["MA_short"].iloc[-2] > df["MA_long"].iloc[-2] and
-        df["MA_short"].iloc[-1] < df["MA_long"].iloc[-1]
+        df["MA_short"].iloc[-2] > df["MA_long"].iloc[-2]
+        and df["MA_short"].iloc[-1] < df["MA_long"].iloc[-1]
     )
 
     if ma_cross_buy and df["RSI"].iloc[-1] < 70:
@@ -115,7 +114,6 @@ def execute_trade(side, confidence, price, strategy):
         }
 
     try:
-        # placeholder for live Binance execution
         print("Executing real order (placeholder).")
         return {"status": "live_order_sent"}
 
@@ -151,23 +149,5 @@ def main():
 
         if prediction in ["buy", "sell"]:
             final_side = prediction
-            final_conf = conf
-
-        if tech_side is not None and tech_conf > final_conf:
-            final_side = tech_side
-            final_conf = tech_conf
-
-        if final_side:
-            execute_trade(
-                side=final_side,
-                confidence=final_conf,
-                price=price,
-                strategy="ensemble+signals"
-            )
-
-        time.sleep(cfg.get("SLEEP_SECONDS", 5))
-
-
-if __name__ == "__main__":
-    main()
+            final_conf =_
 
