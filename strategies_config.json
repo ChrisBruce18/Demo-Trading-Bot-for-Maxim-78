@@ -25,8 +25,7 @@
     "exit_threshold": 0.004
   },
   "api_credentials": {
-    "api_key": "YOUR_GEMINI_KEY",
-    "api_secret": "YOUR_GEMINI_SECRET"
+    "api_key": "master-EFUoFuWWtwA0Fq4yu5Iq",
+    "api_secret": "3cQ5C5GbAkHkLZqBdG8kH57kUJEF"
   }
 }
-
