@@ -1,3 +1,4 @@
+
 # bot.py
 import time
 import os
@@ -7,7 +8,7 @@ import numpy as np
 import pandas as pd
 
 # ------------------------------
-# LOAD CONFIG JSON (keep your old loader)
+# LOAD CONFIG JSON
 # ------------------------------
 CONFIG_FILE = 'config.json'
 if not os.path.exists(CONFIG_FILE):
@@ -31,16 +32,15 @@ TARGET_VOL = config.get('target_vol', 0.02)
 if not os.path.exists('logs'):
     os.makedirs('logs')
 
-# FIXED: indentation for header creation
 if not os.path.exists(LOG_FILE):
     pd.DataFrame(
-        columns=['timestamp','price','side','strategy','confidence','qty']
+        columns=['timestamp', 'price', 'side', 'strategy', 'confidence', 
+'qty']
     ).to_csv(LOG_FILE, index=False)
 
 # ------------------------------
 # IMPORT DASHBOARD & STRATEGIES
 # ------------------------------
-# FIXED: import line broken in previous code
 from dashboard import update_dashboard
 from strategies import (
     PredictiveEnsemble,
@@ -57,7 +57,7 @@ def generate_demo_data(length=LIMIT, start_price=50000.0):
     rng = np.random.default_rng(seed=42)
     price = start_price + np.cumsum(rng.normal(scale=40.0, size=length))
     timestamps = [
-        datetime.now() - timedelta(seconds=TRADE_INTERVAL*(length - i))
+        datetime.now() - timedelta(seconds=TRADE_INTERVAL * (length - i))
         for i in range(length)
     ]
     df = pd.DataFrame({
@@ -79,22 +79,29 @@ def ma_crossover_signal(df, short=5, long=20):
     df = df.copy()
     df['MA_short'] = df['close'].rolling(short).mean()
     df['MA_long'] = df['close'].rolling(long).mean()
-    if df['MA_short'].iloc[-2] < df['MA_long'].iloc[-2] and 
-df['MA_short'].iloc[-1] > df['MA_long'].iloc[-1]:
+    
+    # FIXED: parentheses around multiline condition
+    if ((df['MA_short'].iloc[-2] < df['MA_long'].iloc[-2] and
+         df['MA_short'].iloc[-1] > df['MA_long'].iloc[-1])):
         return 'buy'
-    elif df['MA_short'].iloc[-2] > df['MA_long'].iloc[-2] and 
-df['MA_short'].iloc[-1] < df['MA_long'].iloc[-1]:
+    elif ((df['MA_short'].iloc[-2] > df['MA_long'].iloc[-2] and
+           df['MA_short'].iloc[-1] < df['MA_long'].iloc[-1])):
         return 'sell'
     return None
 
 def execute_trade(side, price, strategy, confidence, qty):
-    commentary = f"{datetime.now()} - Predicted {side.upper()} (conf 
-{confidence:.2f}) qty {qty:.6f} @ {price:.2f} via {strategy}"
+    commentary = (
+        f"{datetime.now()} - Predicted {side.upper()} (conf 
+{confidence:.2f}) "
+        f"qty {qty:.6f} @ {price:.2f} via {strategy}"
+    )
     print(commentary)
-    log_df = pd.DataFrame([[datetime.now(), price, side, strategy, 
-float(confidence), float(qty)]],
-                          
-columns=['timestamp','price','side','strategy','confidence','qty'])
+    log_df = pd.DataFrame(
+        [[datetime.now(), price, side, strategy, float(confidence), 
+float(qty)]],
+        columns=['timestamp', 'price', 'side', 'strategy', 'confidence', 
+'qty']
+    )
     log_df.to_csv(LOG_FILE, mode='a', header=False, index=False)
     return commentary
 
@@ -104,11 +111,10 @@ columns=['timestamp','price','side','strategy','confidence','qty'])
 if DEMO_MODE:
     df_master = generate_demo_data()
 else:
-    # keep existing JSON-based credentials/fetching
     if 'api_key' not in config or 'api_secret' not in config:
         raise RuntimeError("Missing API credentials in JSON.")
-    # here your previous code fetches data from exchange
-    # e.g., df_master = fetch_from_exchange(config)
+    # Keep your existing exchange fetch code here
+    # df_master = fetch_from_exchange(config)
 
 df_master['signal'] = None
 
@@ -131,7 +137,7 @@ print(f"Bot started. DEMO_MODE={DEMO_MODE}, Symbol={SYMBOL}")
 # ------------------------------
 while True:
     try:
-        # simulate new candle
+        # 1) Simulate new candle
         last_time = df_master['timestamp'].iloc[-1]
         new_time = last_time + pd.Timedelta(seconds=TRADE_INTERVAL)
         last_price = float(df_master['close'].iloc[-1])
@@ -149,10 +155,10 @@ while True:
         df_master = pd.concat([df_master.iloc[1:], 
 pd.DataFrame([new_row])], ignore_index=True)
 
-        # compute signals
+        # 2) Compute signals
         ma_sig = ma_crossover_signal(df_master)
 
-        # ensemble online update
+        # 3) Ensemble online update
         ensemble.online_update(df_master['close'].values)
         preds = ensemble.predict(df_master['close'].values)
         preds_list = []
@@ -162,22 +168,22 @@ pd.DataFrame([new_row])], ignore_index=True)
             preds_list.append(mu_var_bayes)
             preds_list.append(mu_var_sgd)
 
-        # kalman update
+        # 4) Kalman filter update
         level, trend, obs_var = kalman.update(df_master['close'].iloc[-1])
         kalman_mu = trend / max(level, 1e-8)
         kalman_var = obs_var
         preds_list.append((kalman_mu, kalman_var))
 
-        # ensemble prediction
+        # 5) Ensemble prediction
         ensemble_mu, ensemble_var = 
 precision_weighted_ensemble(preds_list)
 
-        # volatility
+        # 6) Volatility estimate
         ret = np.log(df_master['close'].iloc[-1] / 
 df_master['close'].iloc[-2] + 1e-12)
         est_vol = vol_est.update(ret)
 
-        # trade decision
+        # 7) Trade decision
         direction = 'buy' if ensemble_mu > 0 else 'sell'
         consensus = (ma_sig == direction)
         confidence = max(0.0, min(1.0, 1.0 / (1.0 + ensemble_var)))
@@ -193,14 +199,17 @@ max_usd_alloc=MAX_USD_ALLOC)
             commentary = execute_trade(final_signal, price_now, 
 'PhD_Ensemble', confidence, qty)
         else:
-            commentary = f"{datetime.now()} - No trade: 
-consensus={consensus}, conf={confidence:.2f}, qty={qty:.6f}"
+            commentary = (
+                f"{datetime.now()} - No trade: consensus={consensus}, "
+                f"conf={confidence:.2f}, qty={qty:.6f}"
+            )
 
         df_master.at[df_master.index[-1], 'signal'] = final_signal
 
-        # update dashboard
+        # 8) Update dashboard
         update_dashboard(df_master, commentary)
 
+        # 9) Wait until next interval
         time.sleep(TRADE_INTERVAL)
 
     except KeyboardInterrupt:
@@ -209,5 +218,4 @@ consensus={consensus}, conf={confidence:.2f}, qty={qty:.6f}"
     except Exception as e:
         print("Runtime error:", e)
         time.sleep(5)
-
 
