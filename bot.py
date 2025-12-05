@@ -1,9 +1,9 @@
 import json
 import time
-from datetime import datetime, timedelta
-import os
-import numpy as np
+from datetime import datetime
 import pandas as pd
+import numpy as np
+import os
 
 from strategies import (
     PredictiveEnsemble,
@@ -12,39 +12,85 @@ from strategies import (
     precision_weighted_ensemble,
     size_from_vol
 )
-from dashboard import update_dashboard
 
 ############################
-# CONFIG
+# CONFIG LOADER
 ############################
 
-with open("config.json", "r") as f:
-    cfg = json.load(f)
+class Config:
+    def __init__(self, path="config.json"):
+        if not os.path.exists(path):
+            raise FileNotFoundError(f"{path} not found")
+        with open(path, "r") as f:
+            self.cfg = json.load(f)
+        self.exchange = self.cfg.get("exchange", {})
+        self.trade_settings = self.cfg.get("trade_settings", {})
 
-DEMO_MODE = cfg.get("DEMO_MODE", True)
-SYMBOL = cfg.get("SYMBOL", "BTCUSDT")
-TIMEFRAME = cfg.get("TIMEFRAME", "1m")
-LIMIT = cfg.get("LIMIT", 200)
-TRADE_INTERVAL = cfg.get("TRADE_INTERVAL", 30)  # seconds
-LOG_FILE = cfg.get("LOG_FILE", "logs/trade_log.csv")
+    @property
+    def name(self):
+        return self.exchange.get("name")
+
+    @property
+    def api_key(self):
+        return self.exchange.get("api_key")
+
+    @property
+    def api_secret(self):
+        return self.exchange.get("api_secret")
+
+    @property
+    def symbols(self):
+        return self.exchange.get("symbols", [])
+
+    @property
+    def timeframe(self):
+        return self.exchange.get("timeframe", "1m")
+
+    @property
+    def limit(self):
+        return self.exchange.get("limit", 200)
+
+    @property
+    def sandbox(self):
+        return self.exchange.get("sandbox", True)
+
+    @property
+    def trade_interval(self):
+        return self.trade_settings.get("trade_interval", 30)
+
+    @property
+    def log_file(self):
+        return self.trade_settings.get("log_file", "logs/trade_log.csv")
+
+    @property
+    def max_usd_allocation(self):
+        return self.trade_settings.get("max_usd_allocation", 1000)
+
+    @property
+    def target_vol(self):
+        return self.trade_settings.get("target_vol", 0.02)
+
+    @property
+    def sleep_seconds(self):
+        return self.trade_settings.get("sleep_seconds", 5)
+
+cfg = Config()
 
 # Ensure logs directory exists
-if not os.path.exists("logs"):
-    os.makedirs("logs")
-
-# Ensure CSV header
-if not os.path.exists(LOG_FILE):
+os.makedirs(os.path.dirname(cfg.log_file), exist_ok=True)
+if not os.path.exists(cfg.log_file):
     
-pd.DataFrame(columns=['timestamp','price','side','strategy','confidence','qty']).to_csv(LOG_FILE, 
+pd.DataFrame(columns=['timestamp','price','side','strategy','confidence','qty']).to_csv(cfg.log_file, 
 index=False)
 
 ############################
-# LOAD HISTORICAL / DEMO DATA
+# DATA FUNCTIONS
 ############################
 
-def load_json_data():
+def load_json_data(file="data.json"):
+    """Load historical candle data from JSON."""
     try:
-        with open("data.json", "r") as f:
+        with open(file, "r") as f:
             data = json.load(f)
         return pd.DataFrame(data)
     except Exception as e:
@@ -52,22 +98,8 @@ def load_json_data():
         return pd.DataFrame()
 
 def fetch_latest_price(df):
+    """Get the most recent close price."""
     return float(df["close"].iloc[-1])
-
-def generate_demo_data(length=LIMIT, start_price=50000.0):
-    rng = np.random.default_rng(seed=42)
-    price = start_price + np.cumsum(rng.normal(scale=40.0, size=length))
-    timestamps = [datetime.now() - 
-timedelta(seconds=TRADE_INTERVAL*(length - i)) for i in range(length)]
-    df = pd.DataFrame({
-        'timestamp': timestamps,
-        'open': price + rng.normal(scale=5.0, size=length),
-        'high': price + rng.normal(scale=10.0, size=length),
-        'low': price - rng.normal(scale=10.0, size=length),
-        'close': price,
-        'volume': rng.integers(1, 10, size=length)
-    })
-    return df
 
 ############################
 # INDICATORS
@@ -96,62 +128,62 @@ def compute_indicators(df):
 ############################
 
 def generate_signal(df):
+    """MA crossover + RSI filter."""
     if len(df) < 60:
         return None, 0.0
 
-    ma_cross_buy = df["MA_short"].iloc[-2] < df["MA_long"].iloc[-2] and 
-df["MA_short"].iloc[-1] > df["MA_long"].iloc[-1]
-    ma_cross_sell = df["MA_short"].iloc[-2] > df["MA_long"].iloc[-2] and 
-df["MA_short"].iloc[-1] < df["MA_long"].iloc[-1]
+    ma_cross_buy = (
+        df["MA_short"].iloc[-2] < df["MA_long"].iloc[-2] and
+        df["MA_short"].iloc[-1] > df["MA_long"].iloc[-1]
+    )
+    ma_cross_sell = (
+        df["MA_short"].iloc[-2] > df["MA_long"].iloc[-2] and
+        df["MA_short"].iloc[-1] < df["MA_long"].iloc[-1]
+    )
 
     if ma_cross_buy and df["RSI"].iloc[-1] < 70:
         return "buy", 0.65
     if ma_cross_sell and df["RSI"].iloc[-1] > 30:
         return "sell", 0.65
-
     return None, 0.0
 
 ############################
 # TRADE EXECUTION
 ############################
 
-def execute_trade(side, price, strategy, confidence, qty):
-    commentary = f"{datetime.now()} - Predicted {side.upper()} (conf 
-{confidence:.2f}) qty {qty:.6f} @ {price:.2f} via {strategy}"
+def execute_trade(side, confidence, price, strategy):
+    qty = size_from_vol(cfg.target_vol, price, 
+max_usd_alloc=cfg.max_usd_allocation)
+    commentary = (
+        f"{datetime.now()} - Predicted {side.upper()} "
+        f"(conf {confidence:.2f}) qty {qty:.6f} @ {price:.2f} via 
+{strategy}"
+    )
     print(commentary)
 
+    # Log trade
     log = pd.DataFrame([[datetime.now(), price, side, strategy, 
 float(confidence), float(qty)]],
                        
 columns=['timestamp','price','side','strategy','confidence','qty'])
-    log.to_csv(LOG_FILE, mode='a', header=False, index=False)
+    log.to_csv(cfg.log_file, mode='a', header=False, index=False)
 
-    if DEMO_MODE:
-        print("DEMO_MODE=True → Trade NOT sent.")
-        return {"status": "demo", "qty": qty, "price": price, "side": 
-side, "strategy": strategy}
-
-    try:
-        # Placeholder for live execution
-        print("Executing live order (placeholder).")
-        return {"status": "live_order_sent"}
-    except Exception as e:
-        print("Trade execution error:", e)
-        return None
+    # Placeholder for API trade execution (replace with exchange call)
+    # Here, you would implement: exchange.create_order(symbol, side, qty, 
+...)
+    return commentary
 
 ############################
-# MAIN BOT
+# MAIN LOOP
 ############################
 
 def main():
-    if DEMO_MODE:
-        df_master = generate_demo_data()
-    else:
-        df_master = load_json_data()
-        if df_master.empty:
-            raise RuntimeError("No data loaded and DEMO_MODE=False")
+    df = load_json_data()
+    if df.empty:
+        print("No data loaded. Exiting.")
+        return
 
-    df_master['signal'] = None
+    df = compute_indicators(df)
 
     # Initialize models
     ensemble = PredictiveEnsemble(window=40)
@@ -159,88 +191,65 @@ def main():
     vol_est = EWMA_Volatility(span=20)
 
     try:
-        ensemble.train_initial(df_master['close'].values)
+        ensemble.train_initial(df['close'].values)
     except Exception:
         pass
+    kalman.initialize(df['close'].iloc[0])
 
-    kalman.initialize(df_master['close'].iloc[0])
-
-    print("Bot started. DEMO_MODE =", DEMO_MODE)
+    print(f"Live bot started for {cfg.name.upper()}, symbols: 
+{cfg.symbols}")
 
     while True:
         try:
-            # New candle simulation for demo
-            if DEMO_MODE:
-                last_time = df_master['timestamp'].iloc[-1]
-                new_time = last_time + 
-pd.Timedelta(seconds=TRADE_INTERVAL)
-                last_price = float(df_master['close'].iloc[-1])
-                new_price = last_price + np.random.normal(scale=40.0)
-                new_row = {
-                    'timestamp': new_time,
-                    'open': new_price + np.random.normal(scale=5.0),
-                    'high': new_price + abs(np.random.normal(scale=10.0)),
-                    'low': new_price - abs(np.random.normal(scale=10.0)),
-                    'close': new_price,
-                    'volume': int(max(1, np.random.poisson(5)))
-                }
-                df_master = pd.concat([df_master.iloc[1:], 
-pd.DataFrame([new_row])], ignore_index=True)
+            price = fetch_latest_price(df)
 
-            # Compute indicators
-            df_master = compute_indicators(df_master)
-
-            # Signals
-            ma_sig = generate_signal(df_master)[0]
-
-            # Ensemble updates
-            ensemble.online_update(df_master['close'].values)
-            preds = ensemble.predict(df_master['close'].values)
-
+            # Ensemble model
+            ensemble.online_update(df['close'].values)
+            preds = ensemble.predict(df['close'].values)
             preds_list = []
-            if preds is not None:
+            if preds:
                 mu_var_bayes, mu_var_sgd = preds
                 preds_list.append(mu_var_bayes)
                 preds_list.append(mu_var_sgd)
-
-            level, trend, obs_var = 
-kalman.update(df_master['close'].iloc[-1])
+            level, trend, obs_var = kalman.update(price)
             kalman_mu = trend / max(level, 1e-8)
             kalman_var = obs_var
             preds_list.append((kalman_mu, kalman_var))
 
+            # Weighted ensemble
             ensemble_mu, ensemble_var = 
 precision_weighted_ensemble(preds_list)
 
-            ret = np.log(df_master['close'].iloc[-1] / 
-df_master['close'].iloc[-2] + 1e-12)
+            # Volatility estimate
+            ret = np.log(price / df['close'].iloc[-2] + 1e-12)
             est_vol = vol_est.update(ret)
 
+            # Technical signal
+            tech_side, tech_conf = generate_signal(df)
+
+            # Consensus & confidence
             direction = 'buy' if ensemble_mu > 0 else 'sell'
-            consensus = (ma_sig == direction)
+            consensus = (tech_side == direction)
             confidence = max(0.0, min(1.0, 1.0 / (1.0 + ensemble_var)))
 
-            target_vol = 0.02
-            price_now = float(df_master['close'].iloc[-1])
-            qty = size_from_vol(target_vol, est_vol, price_now, 
-max_usd_alloc=1000)
+            qty = size_from_vol(cfg.target_vol, est_vol, price, 
+max_usd_alloc=cfg.max_usd_allocation)
 
             final_signal = None
             commentary = None
             if consensus and confidence > 0.25 and qty > 0:
                 final_signal = direction
-                commentary = execute_trade(final_signal, price_now, 
-'PhD_Ensemble', confidence, qty)
+                commentary = execute_trade(final_signal, confidence, 
+price, 'Ensemble+Signal')
             else:
                 commentary = f"{datetime.now()} - No trade: 
 consensus={consensus}, conf={confidence:.2f}, qty={qty:.6f}"
 
-            df_master.at[df_master.index[-1], 'signal'] = final_signal
+            # Update dataframe (append latest candle)
+            df = df.append({'timestamp': datetime.now(), 'close': price}, 
+ignore_index=True)
 
-            # Dashboard
-            update_dashboard(df_master, commentary)
-
-            time.sleep(TRADE_INTERVAL)
+            time.sleep(cfg.trade_interval)
 
         except KeyboardInterrupt:
             print("Stopped by user.")
@@ -251,4 +260,3 @@ consensus={consensus}, conf={confidence:.2f}, qty={qty:.6f}"
 
 if __name__ == "__main__":
     main()
-
