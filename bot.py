@@ -19,15 +19,16 @@ from strategies import (
 with open("config.json", "r") as f:
     cfg = json.load(f)
 
+DEMO_MODE = cfg.get("DEMO_MODE", True)
 SYMBOL = cfg.get("SYMBOL", "BTCUSDT")
 LOG_FILE = cfg.get("LOG_FILE", "logs/trade_log.csv")
-TRADE_INTERVAL = cfg.get("TRADE_INTERVAL", 30)  # seconds between checks
 
-# create logs dir if missing
+# Ensure logs folder exists
 import os
-os.makedirs(os.path.dirname(LOG_FILE), exist_ok=True)
+if not os.path.exists("logs"):
+    os.makedirs("logs")
 
-# ensure log file exists
+# Ensure log file exists
 if not os.path.exists(LOG_FILE):
     pd.DataFrame(
         columns=['timestamp', 'price', 'side', 'strategy', 'confidence', 
@@ -79,6 +80,7 @@ def compute_indicators(df):
 ############################
 
 def generate_signal(df):
+    """Simple MA cross + RSI filter."""
     if len(df) < 60:
         return None, 0.0
 
@@ -107,6 +109,7 @@ def generate_signal(df):
 def execute_trade(side, confidence, price, strategy):
     qty = size_from_vol(confidence, price)
 
+    # Fixed multi-line f-string
     commentary = (
         f"{datetime.now()} - Predicted {side.upper()} "
         f"(conf {confidence:.2f}) qty {qty:.6f} @ {price:.2f} via 
@@ -114,18 +117,16 @@ def execute_trade(side, confidence, price, strategy):
     )
     print(commentary)
 
-    # log trade
-    pd.DataFrame(
+    # Logging
+    log = pd.DataFrame(
         [[datetime.now(), price, side, strategy, float(confidence), 
 float(qty)]],
         columns=['timestamp', 'price', 'side', 'strategy', 'confidence', 
 'qty']
-    ).to_csv(LOG_FILE, mode='a', header=False, index=False)
+    )
+    log.to_csv(LOG_FILE, mode='a', header=False, index=False)
 
-    # placeholder for live API call: integrate Gemini / Binance API here
-    # return actual order result as needed
-    return {"status": "logged", "qty": qty, "price": price, "side": side, 
-"strategy": strategy}
+    return commentary
 
 ############################
 # MAIN LOOP
@@ -138,88 +139,76 @@ def main():
         return
 
     df = compute_indicators(df)
+    df['signal'] = None
 
-    # initialize models
+    # Initialize models
     ensemble_model = PredictiveEnsemble()
     kalman_model = SimpleKalman(q_level=1e-4, q_trend=1e-4, r=1.0)
-    vol_estimator = EWMA_Volatility(span=20)
+    vol_est = EWMA_Volatility(span=20)
 
-    # initial training
     try:
-        ensemble_model.train_initial(df["close"].values)
+        ensemble_model.train_initial(df['close'].values)
     except Exception:
         pass
 
-    kalman_model.initialize(df["close"].iloc[0])
+    kalman_model.initialize(df['close'].iloc[0])
 
-    print("Live bot started. Running with historical data and API hooks.")
+    print("Bot started. Running with live data (DEMO_MODE=False).")
 
     while True:
         try:
-            price = fetch_latest_price(df)
+            price_now = fetch_latest_price(df)
 
-            # model predictions
-            preds = ensemble_model.predict(df["close"].values)
-            preds_list = []
-            if preds is not None:
-                mu_var_bayes, mu_var_sgd = preds
-                preds_list.append(mu_var_bayes)
-                preds_list.append(mu_var_sgd)
+            # Model predictions
+            preds = []
+            pred_result = ensemble_model.predict(df['close'].values)
+            if pred_result is not None:
+                mu_var_bayes, mu_var_sgd = pred_result
+                preds.append(mu_var_bayes)
+                preds.append(mu_var_sgd)
 
-            # Kalman update
             level, trend, obs_var = 
-kalman_model.update(df["close"].iloc[-1])
+kalman_model.update(df['close'].iloc[-1])
             kalman_mu = trend / max(level, 1e-8)
             kalman_var = obs_var
-            preds_list.append((kalman_mu, kalman_var))
+            preds.append((kalman_mu, kalman_var))
 
-            # precision-weighted ensemble
-            ensemble_mu, ensemble_var = 
-precision_weighted_ensemble(preds_list)
+            # Ensemble weighting
+            ensemble_mu, ensemble_var = precision_weighted_ensemble(preds)
 
-            # volatility estimation
-            ret = np.log(df["close"].iloc[-1] / df["close"].iloc[-2] + 
+            # Volatility
+            ret = np.log(df['close'].iloc[-1] / df['close'].iloc[-2] + 
 1e-12)
-            est_vol = vol_estimator.update(ret)
+            est_vol = vol_est.update(ret)
 
-            # technical signal
+            # Technical signal
             tech_side, tech_conf = generate_signal(df)
 
-            # final decision
-            direction = "buy" if ensemble_mu > 0 else "sell"
+            # Direction and confidence
+            direction = 'buy' if ensemble_mu > 0 else 'sell'
             consensus = (tech_side == direction)
-
             confidence = max(0.0, min(1.0, 1.0 / (1.0 + ensemble_var)))
-            qty = size_from_vol(0.02, est_vol, price, max_usd_alloc=1000)
 
-            final_side = direction if consensus else None
-            final_conf = confidence if consensus else 0.0
+            qty = size_from_vol(0.02, est_vol, price_now, 
+max_usd_alloc=1000)
 
-            if tech_side is not None and tech_conf > final_conf:
-                final_side = tech_side
-                final_conf = tech_conf
-
-            if final_side and qty > 0:
-                execute_trade(final_side, final_conf, price, 
-strategy="PhD_Ensemble")
+            final_signal = None
+            commentary = None
+            if consensus and confidence > 0.25 and qty > 0:
+                final_signal = direction
+                commentary = execute_trade(final_signal, confidence, 
+price_now, 'PhD_Ensemble')
             else:
-                print(
-                    f"{datetime.now()} - No trade: consensus={consensus}, 
-"
-                    f"conf={confidence:.2f}, qty={qty:.6f}"
+                commentary = (
+                    f"{datetime.now()} - No trade: "
+                    f"consensus={consensus}, conf={confidence:.2f}, 
+qty={qty:.6f}"
                 )
+                print(commentary)
 
-            time.sleep(TRADE_INTERVAL)
+            df.at[df.index[-1], 'signal'] = final_signal
+
+            time.sleep(cfg.get("TRADE_INTERVAL", 30))
 
         except KeyboardInterrupt:
-            print("Stopped by user.")
-            break
-        except Exception as e:
-            print("Runtime error:", e)
-            time.sleep(5)
-
-
-if __name__ == "__main__":
-    main()
-
 
